@@ -1,8 +1,7 @@
 # SkyCell 1.0.1 made 06/15/24
 # Concept by SingeStheos
 # NIF file import code by Bad Dog
-#
-#
+# https://github.com/SingeStheos/SkyCell
 #
 # SkyCell is presented with the MIT license. 
 # Bad Dog's PyNifly is licensed under GPL-3.0.
@@ -15,6 +14,13 @@ bl_info = {
     "blender": (2, 80, 0),
     "category": "Import-Export",
     "description": "Import Cells from Skyrim, the easy way. Requires NIF Import by Bad Dog.",
+    "author": "SingeStheos and Bad Dog",
+    "version": (1, 0, 1),
+    "location": "View3D > Tool Shelf > SkyCell",
+    "warning": "",
+    "wiki_url": "https://github.com/SingeStheos/SkyCell",
+    "tracker_url": "https://github.com/SingeStheos/SkyCell/issues",
+    "support": "COMMUNITY",
 }
 
 import bpy
@@ -67,6 +73,11 @@ def init_properties():
         default=5,
         min=1
     )
+    bpy.types.Scene.debug_mode = bpy.props.BoolProperty(
+        name="Debug Mode",
+        description="Toggle debug mode to show/hide advanced options",
+        default=False
+    )
 
 def clear_properties():
     del bpy.types.Scene.text_file_path
@@ -77,6 +88,21 @@ def clear_properties():
     del bpy.types.Scene.override_scale
     del bpy.types.Scene.scale_override_value
     del bpy.types.Scene.objects_per_frame
+    del bpy.types.Scene.debug_mode
+
+# Addon Preferences
+class SkyCellPreferences(bpy.types.AddonPreferences):
+    bl_idname = __name__
+
+    debug_mode: bpy.props.BoolProperty(
+        name="Debug Mode",
+        description="Toggle debug mode to show/hide advanced options",
+        default=False
+    )
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "debug_mode", text="Debug Mode")
 
 # UI Panel
 class SkyrimNIFImporterPanel(bpy.types.Panel):
@@ -89,15 +115,20 @@ class SkyrimNIFImporterPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         scene = context.scene
+        prefs = context.preferences.addons[__name__].preferences
+
         layout.prop(scene, "text_file_path", text="Text File Path")
         layout.prop(scene, "mesh_directory", text="Mesh Directory")
-        layout.prop(scene, "ignore_position", text="Ignore Position")
-        layout.prop(scene, "ignore_rotation", text="Ignore Rotation")
-        layout.prop(scene, "ignore_scale", text="Ignore Scale")
-        layout.prop(scene, "override_scale", text="Override Scale")
-        if scene.override_scale:
-            layout.prop(scene, "scale_override_value", text="Scale Override Value")
-        layout.prop(scene, "objects_per_frame", text="Objects Per Frame")
+
+        if prefs.debug_mode:
+            layout.prop(scene, "objects_per_frame", text="Objects Per Frame")
+            layout.prop(scene, "ignore_position", text="Ignore Position")
+            layout.prop(scene, "ignore_rotation", text="Ignore Rotation")
+            layout.prop(scene, "ignore_scale", text="Ignore Scale")
+            layout.prop(scene, "override_scale", text="Override Scale")
+            if scene.override_scale:
+                layout.prop(scene, "scale_override_value", text="Scale Override Value")
+        
         layout.operator("import_skyrim.nif", text="Import NIF Files")
 
 # Operator for importing NIF files based on the text file
@@ -218,7 +249,7 @@ class ImportSkyrimNIFOperator(bpy.types.Operator):
         obj.scale = (scale, scale, scale)
 
 # Register and Unregister
-classes = [SkyrimNIFImporterPanel, ImportSkyrimNIFOperator]
+classes = [SkyCellPreferences, SkyrimNIFImporterPanel, ImportSkyrimNIFOperator]
 
 def register():
     for cls in classes:
