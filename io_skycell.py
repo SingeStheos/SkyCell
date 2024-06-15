@@ -1,4 +1,4 @@
-# SkyCell 1.0.1 06/13/24
+# SkyCell 1.0.1 made 06/15/24
 # Concept by SingeStheos
 # NIF file import code by Bad Dog
 #
@@ -61,6 +61,12 @@ def init_properties():
         description="Value to override all scale data",
         default=1.0
     )
+    bpy.types.Scene.objects_per_frame = bpy.props.IntProperty(
+        name="Objects Per Frame",
+        description="Number of objects to import per frame",
+        default=5,
+        min=1
+    )
 
 def clear_properties():
     del bpy.types.Scene.text_file_path
@@ -70,6 +76,7 @@ def clear_properties():
     del bpy.types.Scene.ignore_scale
     del bpy.types.Scene.override_scale
     del bpy.types.Scene.scale_override_value
+    del bpy.types.Scene.objects_per_frame
 
 # UI Panel
 class SkyrimNIFImporterPanel(bpy.types.Panel):
@@ -90,6 +97,7 @@ class SkyrimNIFImporterPanel(bpy.types.Panel):
         layout.prop(scene, "override_scale", text="Override Scale")
         if scene.override_scale:
             layout.prop(scene, "scale_override_value", text="Scale Override Value")
+        layout.prop(scene, "objects_per_frame", text="Objects Per Frame")
         layout.operator("import_skyrim.nif", text="Import NIF Files")
 
 # Operator for importing NIF files based on the text file
@@ -98,14 +106,13 @@ class ImportSkyrimNIFOperator(bpy.types.Operator):
     bl_label = "Import Skyrim NIF"
     bl_options = {'REGISTER', 'UNDO'}
 
+    _timer = None
+    _lines = None
+    _index = 0
+
     def execute(self, context):
         text_file_path = context.scene.text_file_path
         nif_directory = context.scene.mesh_directory
-        ignore_position = context.scene.ignore_position
-        ignore_rotation = context.scene.ignore_rotation
-        ignore_scale = context.scene.ignore_scale
-        override_scale = context.scene.override_scale
-        scale_override_value = context.scene.scale_override_value
 
         if not os.path.exists(text_file_path):
             self.report({'ERROR'}, "Text file path does not exist.")
@@ -115,38 +122,65 @@ class ImportSkyrimNIFOperator(bpy.types.Operator):
             self.report({'ERROR'}, "NIF directory does not exist.")
             return {'CANCELLED'}
         
-        lines = self.read_text_file(text_file_path)
+        self._lines = self.read_text_file(text_file_path)
+        self._index = 0
+
+        wm = context.window_manager
+        self._timer = wm.event_timer_add(0.1, window=context.window)
+        wm.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
+
+    def modal(self, context, event):
+        if event.type == 'TIMER':
+            objects_per_frame = context.scene.objects_per_frame
+            ignore_position = context.scene.ignore_position
+            ignore_rotation = context.scene.ignore_rotation
+            ignore_scale = context.scene.ignore_scale
+            override_scale = context.scene.override_scale
+            scale_override_value = context.scene.scale_override_value
+            
+            for _ in range(objects_per_frame):
+                if self._index >= len(self._lines):
+                    self.cancel(context)
+                    return {'FINISHED'}
+                
+                line = self._lines[self._index]
+                data = self.parse_line(line)
+                self._index += 1
+
+                if len(data) < 8:
+                    self.report({'WARNING'}, f"Line skipped due to incorrect format: {line}")
+                    continue
+
+                object_name = data[0]
+                pos = [float(data[1]), float(data[2]), float(data[3])]
+                rot = [float(data[4]), float(data[5]), float(data[6])]
+                scale = float(data[7])
+
+                if ignore_position:
+                    pos = [0.0, 0.0, 0.0]
+                if ignore_rotation:
+                    rot = [0.0, 0.0, 0.0]
+                if ignore_scale:
+                    scale = 1.0
+                if override_scale:
+                    scale = scale_override_value
+
+                nif_file_path = self.get_nif_file_path(context.scene.mesh_directory, object_name)
+                if nif_file_path:
+                    self.import_nif(nif_file_path, object_name)
+                    obj = bpy.context.selected_objects[0]
+                    self.set_transformations(obj, pos, rot, scale)
+                else:
+                    self.report({'WARNING'}, f"NIF file for {object_name} not found.")
         
-        for line in lines:
-            data = self.parse_line(line)
-            if len(data) < 8:
-                self.report({'WARNING'}, f"Line skipped due to incorrect format: {line}")
-                continue
-
-            object_name = data[0]
-            pos = [float(data[1]), float(data[2]), float(data[3])]
-            rot = [float(data[4]), float(data[5]), float(data[6])]
-            scale = float(data[7])
-
-            if ignore_position:
-                pos = [0.0, 0.0, 0.0]
-            if ignore_rotation:
-                rot = [0.0, 0.0, 0.0]
-            if ignore_scale:
-                scale = 1.0
-            if override_scale:
-                scale = scale_override_value
-
-            nif_file_path = self.get_nif_file_path(nif_directory, object_name)
-            if nif_file_path:
-                self.import_nif(nif_file_path, object_name)
-                obj = bpy.context.selected_objects[0]
-                self.set_transformations(obj, pos, rot, scale)
-            else:
-                self.report({'WARNING'}, f"NIF file for {object_name} not found.")
-        
-        return {'FINISHED'}
+        return {'RUNNING_MODAL'}
     
+    def cancel(self, context):
+        wm = context.window_manager
+        wm.event_timer_remove(self._timer)
+        return {'CANCELLED'}
+
     def read_text_file(self, file_path):
         with open(file_path, 'r', encoding='utf-8-sig') as file:
             lines = file.readlines()
